@@ -5,7 +5,7 @@ tool xev.
 
 ## Installation
 
-wev depends on libwayland-client.
+wev depends on libwayland-client and libxkbcommon.
 
     $ make
     # make install
