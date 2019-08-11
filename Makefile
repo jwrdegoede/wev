@@ -17,7 +17,7 @@ wev: wev.c shm.c xdg-shell-protocol.h xdg-shell-protocol.c
 	$(CC) $(CFLAGS) \
 		-g -std=c11 -I. \
 		-o wev wev.c shm.c xdg-shell-protocol.c \
-		$(LIBS)
+		$(LIBS) -lrt
 
 wev.1: wev.1.scd
 	$(SCDOC) < wev.1.scd > wev.1
