@@ -39,6 +39,7 @@ struct wev_state {
 	struct wl_seat *seat;
 	struct wl_shm *shm;
 	struct xdg_wm_base *wm_base;
+	struct wl_data_device_manager *data_device_manager;
 
 	struct wl_surface *surface;
 	struct xdg_surface *xdg_surface;
@@ -49,6 +50,9 @@ struct wev_state {
 	struct xkb_state *xkb_state;
 	struct xkb_context *xkb_context;
 	struct xkb_keymap *xkb_keymap;
+
+	struct wl_data_offer *selection;
+	struct wl_data_offer *dnd;
 };
 
 #define SPACER "                      "
@@ -85,7 +89,7 @@ static int proxy_log(struct wev_state *state,
 	}
 
 	int n = 0;
-	n += printf("[%02d:%16s] %s%s",
+	n += printf("[%02u:%16s] %s%s",
 			wl_proxy_get_id(proxy),
 			class, event, strcmp(fmt, "\n") != 0 ? ": " : "");
 	va_list ap;
@@ -628,6 +632,150 @@ static const struct xdg_wm_base_listener xdg_wm_base_listener = {
 	.ping = wm_base_ping,
 };
 
+static void wl_data_offer_offer(void *data, struct wl_data_offer *offer,
+		const char * mime_type) {
+	struct wev_state *state = data;
+	proxy_log(state, (struct wl_proxy *)offer, "offer",
+			"mime_type: %s\n", mime_type);
+}
+
+static const char *dnd_actions_str(uint32_t state) {
+	switch (state) {
+	case WL_DATA_DEVICE_MANAGER_DND_ACTION_NONE:
+		return "none";
+	case WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY:
+		return "copy";
+	case WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE:
+		return "move";
+	case WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY |
+			WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE:
+		return "copy, move";
+	case WL_DATA_DEVICE_MANAGER_DND_ACTION_ASK:
+		return "ask";
+	case WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY |
+			WL_DATA_DEVICE_MANAGER_DND_ACTION_ASK:
+		return "copy, ask";
+	case WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE |
+			WL_DATA_DEVICE_MANAGER_DND_ACTION_ASK:
+		return "move, ask";
+	case WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY |
+			WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE |
+			WL_DATA_DEVICE_MANAGER_DND_ACTION_ASK:
+		return "copy, move, ask";
+	default:
+		return "unknown";
+	}
+}
+
+static void wl_data_offer_source_actions(void *data,
+		struct wl_data_offer *offer, uint32_t actions) {
+	struct wev_state *state = data;
+	proxy_log(state, (struct wl_proxy *)offer, "source_actions",
+			"actions: %u (%s)\n", actions, dnd_actions_str(actions));
+}
+
+static void wl_data_offer_action(void *data, struct wl_data_offer *offer,
+		uint32_t dnd_action) {
+	struct wev_state *state = data;
+	proxy_log(state, (struct wl_proxy *)offer, "action",
+			"dnd_action: %u (%s)\n", dnd_action, dnd_actions_str(dnd_action));
+}
+
+static const struct wl_data_offer_listener wl_data_offer_listener = {
+	.offer = wl_data_offer_offer,
+	.source_actions = wl_data_offer_source_actions,
+	.action = wl_data_offer_action,
+};
+
+static void wl_data_device_data_offer(void *data,
+		struct wl_data_device *device, struct wl_data_offer *id) {
+	struct wev_state *state = data;
+	proxy_log(state, (struct wl_proxy *)device, "data_offer",
+			"id: %u\n", wl_proxy_get_id((struct wl_proxy *)id));
+
+	wl_data_offer_add_listener(id, &wl_data_offer_listener, data);
+}
+
+static void wl_data_device_enter(void *data,
+		struct wl_data_device *device, uint32_t serial,
+		struct wl_surface *surface, wl_fixed_t x, wl_fixed_t y,
+		struct wl_data_offer *id) {
+	struct wev_state *state = data;
+	proxy_log(state, (struct wl_proxy *)device, "enter",
+			"serial: %d; surface: %d; x, y: %f, %f; id: %u\n", serial,
+			wl_proxy_get_id((struct wl_proxy *)surface),
+			wl_fixed_to_double(x), wl_fixed_to_double(y),
+			wl_proxy_get_id((struct wl_proxy *)id));
+
+	state->dnd = id;
+	wl_data_offer_set_actions(id,
+			WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY |
+				WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE |
+				WL_DATA_DEVICE_MANAGER_DND_ACTION_ASK,
+			WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY);
+
+	// Static accept just so we have something.
+	wl_data_offer_accept(id, serial, "text/plain");
+}
+
+static void wl_data_device_leave(void *data,
+		struct wl_data_device *device) {
+	struct wev_state *state = data;
+	proxy_log(state, (struct wl_proxy *)device, "leave", "\n");
+
+	// Might have already been destroyed during a drop event.
+	if (state->dnd != NULL) {
+		wl_data_offer_destroy(state->dnd);
+		state->dnd = NULL;
+	}
+}
+
+static void wl_data_device_motion(void *data,
+		struct wl_data_device *device, uint32_t serial, wl_fixed_t x,
+		wl_fixed_t y) {
+	struct wev_state *state = data;
+	proxy_log(state, (struct wl_proxy *)device, "motion",
+			"serial: %d; x, y: %f, %f\n", serial, wl_fixed_to_double(x),
+			wl_fixed_to_double(y));
+}
+
+static void wl_data_device_drop(void *data,
+		struct wl_data_device *device) {
+	struct wev_state *state = data;
+	proxy_log(state, (struct wl_proxy *)device, "drop", "\n");
+
+	// We don't actually want the data, so cancel the drop.
+	wl_data_offer_destroy(state->dnd);
+	state->dnd = NULL;
+}
+
+static void wl_data_device_selection(void *data,
+		struct wl_data_device *device, struct wl_data_offer *id) {
+	struct wev_state *state = data;
+	if (id == NULL) {
+		proxy_log(state, (struct wl_proxy *)device, "selection",
+				"(cleared)\n");
+	}
+	else {
+		proxy_log(state, (struct wl_proxy *)device, "selection", "id: %u\n",
+				wl_proxy_get_id((struct wl_proxy *)id));
+	}
+
+	if (state->selection != NULL) {
+		wl_data_offer_destroy(state->selection);
+	}
+	state->selection = id;  // May be NULL.
+}
+
+static const struct wl_data_device_listener wl_data_device_listener = {
+	.data_offer = wl_data_device_data_offer,
+	.enter = wl_data_device_enter,
+	.leave = wl_data_device_leave,
+	.motion = wl_data_device_motion,
+	.drop = wl_data_device_drop,
+	.selection = wl_data_device_selection,
+};
+
 static void registry_global(void *data, struct wl_registry *wl_registry,
 		uint32_t name, const char *interface, uint32_t version) {
 	struct wev_state *state = data;
@@ -640,6 +788,8 @@ static void registry_global(void *data, struct wl_registry *wl_registry,
 		{ &wl_seat_interface, 6, (void **)&state->seat },
 		{ &wl_shm_interface, 1, (void **)&state->shm },
 		{ &xdg_wm_base_interface, 2, (void **)&state->wm_base },
+		{ &wl_data_device_manager_interface, 3,
+			(void **)&state->data_device_manager },
 	};
 
 	for (size_t i = 0; i < sizeof(handles) / sizeof(handles[0]); ++i) {
@@ -736,6 +886,7 @@ int main(int argc, char *argv[]) {
 		{ "wl_seat", state.seat, },
 		{ "wl_shm", state.shm, },
 		{ "xdg_wm_base", state.wm_base, },
+		{ "wl_data_device_manager", state.data_device_manager, },
 	};
 	for (size_t i = 0; i < sizeof(required) / sizeof(required[0]); ++i) {
 		if (required->ptr == NULL) {
@@ -759,6 +910,11 @@ int main(int argc, char *argv[]) {
 			&xdg_toplevel_listener, &state);
 
 	wl_seat_add_listener(state.seat, &wl_seat_listener, &state);
+
+	struct wl_data_device *data_device =
+		wl_data_device_manager_get_data_device(state.data_device_manager,
+				state.seat);
+	wl_data_device_add_listener(data_device, &wl_data_device_listener, &state);
 
 	wl_surface_commit(state.surface);
 	wl_display_roundtrip(state.display);
