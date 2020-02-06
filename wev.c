@@ -336,7 +336,7 @@ static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
 	struct wev_state *wev_state = data;
 	int n = proxy_log(wev_state, (struct wl_proxy *)wl_keyboard, "key",
 			"serial: %d; time: %d; key: %d; state: %d (%s)\n",
-			serial, time, key, state, key_state_str(state));
+			serial, time, key + 8, state, key_state_str(state));
 
 	char buf[128];
 	xkb_keysym_t sym = xkb_state_key_get_one_sym(wev_state->xkb_state, key + 8);
