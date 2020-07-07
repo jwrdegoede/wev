@@ -531,6 +531,7 @@ static struct wl_buffer *create_buffer(struct wev_state *state) {
 	struct wl_buffer *buffer = wl_shm_pool_create_buffer(pool, 0,
 			state->width, state->height, stride, WL_SHM_FORMAT_XRGB8888);
 	wl_shm_pool_destroy(pool);
+	close(fd);
 
 	for (int y = 0; y < state->height; ++y) {
 		for (int x = 0; x < state->width; ++x) {
@@ -541,6 +542,7 @@ static struct wl_buffer *create_buffer(struct wev_state *state) {
 			}
 		}
 	}
+	munmap(data, size);
 
 	wl_buffer_add_listener(buffer, &wl_buffer_listener, NULL);
 
