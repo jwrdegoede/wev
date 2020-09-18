@@ -99,6 +99,26 @@ static int proxy_log(struct wev_state *state,
 	return n;
 }
 
+static void escape_utf8(char *buf) {
+	if (strcmp(buf, "\a") == 0) {
+		strcpy(buf, "\\a");
+	} else if (strcmp(buf, "\b") == 0) {
+		strcpy(buf, "\\b");
+	} else if (strcmp(buf, "\e") == 0) {
+		strcpy(buf, "\\e");
+	} else if (strcmp(buf, "\f") == 0) {
+		strcpy(buf, "\\f");
+	} else if (strcmp(buf, "\n") == 0) {
+		strcpy(buf, "\\n");
+	} else if (strcmp(buf, "\r") == 0) {
+		strcpy(buf, "\\r");
+	} else if (strcmp(buf, "\t") == 0) {
+		strcpy(buf, "\\t");
+	} else if (strcmp(buf, "\v") == 0) {
+		strcpy(buf, "\\v");
+	}
+}
+
 static void wl_pointer_enter(void *data, struct wl_pointer *wl_pointer,
 		uint32_t serial, struct wl_surface *surface,
 		wl_fixed_t surface_x, wl_fixed_t surface_y) {
@@ -307,6 +327,7 @@ static void wl_keyboard_enter(void *data, struct wl_keyboard *wl_keyboard,
 			printf(SPACER "sym: %-12s (%d), ", buf, sym);
 			xkb_state_key_get_utf8(
 					state->xkb_state, *key + 8, buf, sizeof(buf));
+			escape_utf8(buf);
 			printf("utf8: '%s'\n", buf);
 		}
 	}
@@ -347,6 +368,7 @@ static void wl_keyboard_key(void *data, struct wl_keyboard *wl_keyboard,
 		printf(SPACER "sym: %-12s (%d), ", buf, sym);
 
 		xkb_state_key_get_utf8(wev_state->xkb_state, keycode, buf, sizeof(buf));
+		escape_utf8(buf);
 		printf("utf8: '%s'\n", buf);
 	}
 }
