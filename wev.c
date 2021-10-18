@@ -815,6 +815,11 @@ static void registry_global(void *data, struct wl_registry *wl_registry,
 		{ &wl_data_device_manager_interface, 3,
 			(void **)&state->data_device_manager },
 	};
+	char *xdg_current_desktop = getenv("XDG_CURRENT_DESKTOP");
+
+	/* Mutter currently implements wl_seat version 5, not 6 */
+	if (xdg_current_desktop && !strcmp(xdg_current_desktop, "GNOME"))
+		handles[1].version = 5;
 
 	for (size_t i = 0; i < sizeof(handles) / sizeof(handles[0]); ++i) {
 		if (strcmp(interface, handles[i].interface->name) == 0) {
